@@ -2,5 +2,7 @@
 name = "MemcacheCLI"
 version = "0.1.0"
 edition = "2021"
+about = "A simple CLI interface to interact with a memcached server"
 
 [dependencies]
+clap = { version = "4.5.16", features = ["derive"] }

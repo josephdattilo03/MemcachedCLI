@@ -3,6 +3,7 @@ pub struct StorageCommand {
     key: String,
     flags: Option<u16>,
     exptime: Option<u32>,
+    bytes: Option<u32>,
     no_reply: bool,
     data: String,
 }
@@ -13,17 +14,6 @@ pub struct RetrievalCommand {
 }
 
 impl StorageCommand {
-    // fn parse(&cmd_line: &String) -> Result<Self, String> {
-    //     let args: Vec<String> = cmd_line.split(" ").map(String::from).collect();
-    //     let command = match args[0].as_str() {
-    //         "set" | "add" | "replace" | "append" | "prepend" => &args[0],
-    //         _ => return Err(format!("Command {} cannot be found", args[0])),
-    //     };
-
-    //     let key = args[1];
-    //     Self
-    // }
-
     fn deserialize(&self) -> String {
         let flags = match self.flags {
             None => String::from("0"),
@@ -38,16 +28,92 @@ impl StorageCommand {
         } else {
             String::new()
         };
+        let bytes = match self.bytes {
+            Some(bytes) => bytes.to_string(),
+            None => self.data.len().to_string(),
+        };
         String::from(format!(
-            "{} {} {} {} {}\r\n{}\r\n",
-            self.command, self.key, flags, exptime, noreply, self.data
+            "{} {} {} {} {} {}\r\n{}\r\n",
+            self.command, self.key, flags, exptime, bytes, noreply, self.data
         ))
+    }
+    fn parse(cmd_line: &str) -> Result<Self, String> {
+        let words: Vec<&str> = cmd_line.split(" ").collect();
+        if words.len() < 3 {
+            return Err(String::from(
+                "not enough arguments provided: <command> <key> <flags> <value>",
+            ));
+        }
+        let key: String = words[1].to_string();
+        let data: String = words[words.len() - 1].to_string();
+        let flags: Option<u16> = None;
+        let exptime: Option<u32> = None;
+        let bytes: Option<u32> = None;
+        let no_reply: bool = false;
+
+        let command: String = match words[0] {
+            "set" | "add" | "replace" => {
+                // place to process additional args for set add replace
+                for word in &words[2..(words.len() - 2)] {
+                    match word {
+                        _ => {
+                            return Err(String::from(format!("{} - unexpected argument", word)));
+                        }
+                    }
+                }
+                String::from(format!("{}", words[0]))
+            }
+            "append" | "prepend" => {
+                // place to process additional args for append prepend
+                for word in &words[2..words.len() - 2] {
+                    match word {
+                        _ => {
+                            return Err(String::from(format!("{} - unexpected argument", word)));
+                        }
+                    }
+                }
+                String::from(format!("{}", words[0]))
+            }
+            _ => {
+                return Err(String::from(format!("{} - command not found", words[0])));
+            }
+        };
+        Ok(Self {
+            command,
+            key,
+            flags,
+            exptime,
+            bytes,
+            no_reply,
+            data,
+        })
     }
 }
 
 impl RetrievalCommand {
     fn deserialize(&self) -> String {
         String::from(format!("{} {}\r\n", self.command, self.key))
+    }
+    fn parse(cmd_line: &str) -> Result<Self, String> {
+        let words: Vec<&str> = cmd_line.split(" ").collect();
+        if words.len() < 2 {
+            return Err(String::from(
+                "not enough arguments provided: <command> <flags> <key>",
+            ));
+        }
+        let command: String = match words[0] {
+            "get" | "gets" | "gat" | "gats" => {
+                for word in &words[2..words.len() - 2] {
+                    match word {
+                        _ => return Err(String::from(format!("{} - unexpected argument", word))),
+                    }
+                }
+                words[0].to_string()
+            }
+            _ => return Err(String::from(format!("{} - command not found", words[0]))),
+        };
+        let key: String = words[words.len() - 1].to_string();
+        Ok(Self { command, key })
     }
 }
 
@@ -61,12 +127,13 @@ mod parser_tests {
             key: String::from("dog"),
             flags: Some(10),
             exptime: Some(600),
+            bytes: Some(5),
             no_reply: false,
             data: String::from("piss"),
         };
         assert_eq!(
             standard_storage.deserialize(),
-            String::from("set dog 10 600 \r\npiss\r\n"),
+            String::from("set dog 10 600 5 \r\npiss\r\n"),
         );
     }
     #[test]
@@ -76,12 +143,13 @@ mod parser_tests {
             key: String::from("dog"),
             flags: None,
             exptime: None,
+            bytes: None,
             no_reply: false,
             data: String::from("piss"),
         };
         assert_eq!(
             storage.deserialize(),
-            String::from("set dog 0 0 \r\npiss\r\n")
+            String::from("set dog 0 4 \r\npiss\r\n")
         );
     }
 
