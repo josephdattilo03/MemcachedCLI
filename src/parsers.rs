@@ -1,3 +1,8 @@
+pub enum Command {
+    Storage,
+    Retrieval,
+    Unknown,
+}
 pub struct StorageCommand {
     command: String,
     key: String,
@@ -7,14 +12,13 @@ pub struct StorageCommand {
     no_reply: bool,
     data: String,
 }
-
 pub struct RetrievalCommand {
     command: String,
     key: String,
 }
 
 impl StorageCommand {
-    fn deserialize(&self) -> String {
+    pub fn deserialize(&self) -> String {
         let flags = match self.flags {
             None => String::from("0"),
             Some(num) => num.to_string(),
@@ -32,13 +36,20 @@ impl StorageCommand {
             Some(bytes) => bytes.to_string(),
             None => self.data.len().to_string(),
         };
-        String::from(format!(
-            "{} {} {} {} {} {}\r\n{}\r\n",
-            self.command, self.key, flags, exptime, bytes, noreply, self.data
-        ))
+
+        if self.no_reply {
+            String::from(format!(
+                "{} {} {} {} {} noreply\r\n{}\r\n",
+                self.command, self.key, flags, exptime, bytes, self.data
+            ))
+        } else {
+            String::from(format!(
+                "{} {} {} {} {}\r\n{}\r\n",
+                self.command, self.key, flags, exptime, bytes, self.data
+            ))
+        }
     }
-    fn parse(cmd_line: &str) -> Result<Self, String> {
-        let words: Vec<&str> = cmd_line.split(" ").collect();
+    pub fn parse(words: Vec<String>) -> Result<Self, String> {
         if words.len() < 3 {
             return Err(String::from(
                 "not enough arguments provided: <command> <key> <flags> <value>",
@@ -50,11 +61,15 @@ impl StorageCommand {
         let exptime: Option<u32> = None;
         let bytes: Option<u32> = None;
         let no_reply: bool = false;
-
-        let command: String = match words[0] {
+        let args = if words.len() > 3 {
+            &words[2..words.len() - 2]
+        } else {
+            &vec![]
+        };
+        let command: String = match words[0].as_str() {
             "set" | "add" | "replace" => {
                 // place to process additional args for set add replace
-                for word in &words[2..(words.len() - 2)] {
+                for word in args {
                     match word {
                         _ => {
                             return Err(String::from(format!("{} - unexpected argument", word)));
@@ -65,7 +80,7 @@ impl StorageCommand {
             }
             "append" | "prepend" => {
                 // place to process additional args for append prepend
-                for word in &words[2..words.len() - 2] {
+                for word in args {
                     match word {
                         _ => {
                             return Err(String::from(format!("{} - unexpected argument", word)));
@@ -91,19 +106,23 @@ impl StorageCommand {
 }
 
 impl RetrievalCommand {
-    fn deserialize(&self) -> String {
+    pub fn deserialize(&self) -> String {
         String::from(format!("{} {}\r\n", self.command, self.key))
     }
-    fn parse(cmd_line: &str) -> Result<Self, String> {
-        let words: Vec<&str> = cmd_line.split(" ").collect();
+    pub fn parse(words: Vec<String>) -> Result<Self, String> {
         if words.len() < 2 {
             return Err(String::from(
                 "not enough arguments provided: <command> <flags> <key>",
             ));
         }
-        let command: String = match words[0] {
+        let command: String = match words[0].as_str() {
             "get" | "gets" | "gat" | "gats" => {
-                for word in &words[2..words.len() - 2] {
+                let args = if words.len() > 3 {
+                    &words[2..words.len() - 2]
+                } else {
+                    &vec![]
+                };
+                for word in args {
                     match word {
                         _ => return Err(String::from(format!("{} - unexpected argument", word))),
                     }
@@ -133,7 +152,7 @@ mod parser_tests {
         };
         assert_eq!(
             standard_storage.deserialize(),
-            String::from("set dog 10 600 5 \r\npiss\r\n"),
+            String::from("set dog 10 600 5\r\npiss\r\n"),
         );
     }
     #[test]
@@ -147,9 +166,10 @@ mod parser_tests {
             no_reply: false,
             data: String::from("piss"),
         };
+        println!("{}", storage.deserialize());
         assert_eq!(
             storage.deserialize(),
-            String::from("set dog 0 4 \r\npiss\r\n")
+            String::from("set dog 0 0 4\r\npiss\r\n")
         );
     }
 
@@ -158,6 +178,54 @@ mod parser_tests {
         let getter = RetrievalCommand {
             command: String::from("get"),
             key: String::from("dog"),
+        };
+        assert_eq!(getter.deserialize(), String::from("get dog\r\n"));
+    }
+
+    #[test]
+    fn parse_standard_storage() {
+        let command = vec![
+            String::from("set"),
+            String::from("dog"),
+            String::from("piss"),
+        ];
+        let getter = {
+            match StorageCommand::parse(command) {
+                Ok(command) => command,
+                Err(string) => panic!("getter returned an error {}", string),
+            }
+        };
+        assert_eq!(
+            getter.deserialize(),
+            String::from("set dog 0 0 4\r\npiss\r\n")
+        );
+    }
+    #[test]
+    fn parse_wrong_storage() {
+        let command = vec![
+            String::from("set"),
+            String::from("bro"),
+            String::from("-b"),
+            String::from("4"),
+            String::from("same"),
+        ];
+        let getter = {
+            match StorageCommand::parse(command) {
+                Ok(_command) => panic!("wrongly parsed getter got through"),
+                Err(string) => string,
+            }
+        };
+        assert_eq!(getter, String::from("-b - unexpected argument"));
+    }
+
+    #[test]
+    fn parse_retrieval() {
+        let command = vec![String::from("get"), String::from("dog")];
+        let getter = {
+            match RetrievalCommand::parse(command) {
+                Ok(command) => command,
+                Err(string) => panic!("command should not panic: {}", string),
+            }
         };
         assert_eq!(getter.deserialize(), String::from("get dog\r\n"));
     }

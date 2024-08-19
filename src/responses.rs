@@ -1,14 +1,14 @@
-struct StorageResponse {
+pub struct StorageResponse {
     message: Option<String>,
 }
 
-struct RetrievalResponse {
+pub struct RetrievalResponse {
     data: Option<Vec<String>>,
     message: Option<String>,
 }
 
 impl StorageResponse {
-    fn serialize(cmd_response: &str) -> Self {
+    pub fn serialize(cmd_response: &str) -> Self {
         match cmd_response {
             "STORED\r\n" => Self {
                 message: Some(String::from("storage successful")),
@@ -31,10 +31,13 @@ impl StorageResponse {
             }
         }
     }
+    pub fn get_message(&self) -> Option<String> {
+        self.message.clone()
+    }
 }
 
 impl RetrievalResponse {
-    fn serialize(cmd_response: &str) -> Self {
+    pub fn serialize(cmd_response: &str) -> Self {
         match cmd_response {
             "NOT_FOUND\r\n" => Self {
                 data: None,
@@ -56,6 +59,9 @@ impl RetrievalResponse {
             }
             _ => panic!("server did not return a parsable reponse"),
         }
+    }
+    pub fn get_message(&self) -> Option<String> {
+        self.message.clone()
     }
 }
 
