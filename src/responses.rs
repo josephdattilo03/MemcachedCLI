@@ -46,9 +46,8 @@ impl RetrievalResponse {
             response if response.starts_with("VALUE") => {
                 let mut data: Vec<String> = Vec::new();
                 let lines: Vec<&str> = response.split("\r\n").collect();
-                let count = lines.len();
                 for (idx, st) in lines.iter().enumerate() {
-                    if idx != 0 && idx != count - 1 {
+                    if idx != 0 && *st != "END" && *st != "" {
                         data.push(String::from(*st));
                     }
                 }
@@ -60,8 +59,25 @@ impl RetrievalResponse {
             _ => panic!("server did not return a parsable reponse"),
         }
     }
+
     pub fn get_message(&self) -> Option<String> {
-        self.message.clone()
+        let message = match &self.message {
+            Some(message) => message.clone(),
+            None => "".to_string(),
+        };
+
+        let data = match &self.data {
+            Some(data) => format!(": {}", data.join(", ")),
+            None => "".to_string(),
+        };
+
+        let combined_message = format!("{}{}", message, data);
+
+        if combined_message.is_empty() {
+            None
+        } else {
+            Some(combined_message)
+        }
     }
 }
 

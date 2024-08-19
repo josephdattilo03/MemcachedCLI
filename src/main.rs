@@ -3,6 +3,7 @@ use parsers::{Command, RetrievalCommand, StorageCommand};
 use responses::{RetrievalResponse, StorageResponse};
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
+use std::time::Duration;
 mod parsers;
 mod responses;
 
@@ -41,24 +42,33 @@ fn serialize_command(cmd_args: Vec<String>) -> (Result<String, String>, Command)
 }
 
 fn send_data(stream: &mut TcpStream, command: String) -> Result<String, String> {
-    if let Err(_e) = stream.write_all(command.as_bytes()) {
-        return Err(String::from("unable to write to stream"));
-    }
-    if let Err(_e) = stream.flush() {
-        return Err(String::from("buffer stream was unable to flush"));
-    }
-    let mut buffer = Vec::new();
-    println!("loop started");
-    if let Err(_e) = stream.read_to_end(&mut buffer) {
-        return Err(String::from("failed to read return value from stream"));
+    stream
+        .write_all(command.as_bytes())
+        .map_err(|_| "unable to write to stream".to_string())?;
+
+    stream
+        .flush()
+        .map_err(|_| "buffer stream was unable to flush".to_string())?;
+
+    stream
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .map_err(|_| "failed to set stream timeout".to_string())?;
+
+    let mut buffer = Vec::new(); // Adjust the capacity based on expected data size
+
+    loop {
+        let mut temp_buffer = [0; 512]; // Adjust the size based on expected chunk size
+        match stream.read(&mut temp_buffer) {
+            Ok(0) => break, // EOF reached
+            Ok(n) => buffer.extend_from_slice(&temp_buffer[..n]),
+            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => break, // Timeout
+            Err(_) => return Err("failed to read return value from stream".to_string()),
+        }
     }
 
-    println!("here2");
-    let res = String::from_utf8(buffer);
-    println!("here3");
-    match res {
+    match String::from_utf8(buffer) {
         Ok(str) => Ok(str),
-        Err(_e) => Err(String::from("failed to convert stream from utf8")),
+        Err(_) => Err("failed to convert stream from utf8".to_string()),
     }
 }
 
@@ -89,7 +99,6 @@ fn start_service(stream: &mut TcpStream) {
 
 fn main() {
     let cli = Cli::parse();
-    println!("{:?}", cli.command);
     if let Ok(mut stream) = TcpStream::connect(format!("{}:{}", cli.host, cli.port)) {
         if cli.command.len() == 0 {
             start_service(&mut stream);
@@ -110,12 +119,10 @@ fn main() {
                     }
                 }
             };
-            println!("response generated");
             let serialized_response = serialize_response(response, serialized_command.1);
             if let Some(string) = serialized_response {
                 println!("{}", string);
             }
-            println!("done");
         }
     } else {
         println!("failed to connect to memcached service");
